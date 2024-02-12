@@ -9,7 +9,7 @@ def generate_encoder_decoder(token_list):
     encoding_to_token = {i: c for i, c in enumerate(token_list)}
 
     encode = lambda tokens: [token_to_encoding[t] for t in tokens if t in token_list]
-    decode = lambda encodings: "".join((encoding_to_token[e] for e in encodings))
+    decode = lambda encodings: "".join((encoding_to_token.get(e, "") for e in encodings))
 
     return encode, decode
 
@@ -38,8 +38,8 @@ def main():
     token_universe = extract_token_universe(content, MAX_TOKENS)
     encode, decode = generate_encoder_decoder(token_universe)
     content_encoding = torch.tensor(encode(content), dtype=torch.uint8)
-    print(content_encoding[:1000])
-    print(decode(encode("hello worlddd")))
+    print(content_encoding[:100])
+    print(decode(content_encoding[:100].tolist()))
 
 
 if __name__ == "__main__":
