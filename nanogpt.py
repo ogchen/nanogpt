@@ -2,6 +2,14 @@ import argparse
 import torch
 
 MAX_TOKENS = 255  # Allow usage of uint8
+TRAINING_DATA_PERCENTAGE = 0.9
+
+
+def split_data(data, training_data_percentage):
+    train_size = int(training_data_percentage * len(data))
+    train_data = data[:train_size]
+    val_data = data[train_size:]
+    return train_data, val_data
 
 
 def generate_encoder_decoder(token_list):
@@ -37,9 +45,8 @@ def main():
     content = read_file(args.filename)
     token_universe = extract_token_universe(content, MAX_TOKENS)
     encode, decode = generate_encoder_decoder(token_universe)
-    content_encoding = torch.tensor(encode(content), dtype=torch.uint8)
-    print(content_encoding[:100])
-    print(decode(content_encoding[:100].tolist()))
+    data = torch.tensor(encode(content), dtype=torch.uint8)
+    train_data, val_data = split_data(data, TRAINING_DATA_PERCENTAGE)
 
 
 if __name__ == "__main__":
