@@ -5,8 +5,8 @@ def generate_encoder_decoder(token_list):
     token_to_encoding = {c: i for i, c in enumerate(token_list)}
     encoding_to_token = {i: c for i, c in enumerate(token_list)}
 
-    encode = lambda tokens: list(map(lambda t: token_to_encoding[t], tokens))
-    decode = lambda encodings: list(map(lambda e: encoding_to_token[e], encodings))
+    encode = lambda tokens: [token_to_encoding[t] for t in tokens]
+    decode = lambda encodings: "".join((encoding_to_token[e] for e in encodings))
 
     return encode, decode
 
@@ -35,7 +35,7 @@ def main():
     token_list = extract_token_list(content)
     encode, decode = generate_encoder_decoder(token_list)
     print(encode("Hello world"))
-    print("".join(decode(encode("Hello world"))))
+    print(decode(encode("Hello world")))
 
 
 if __name__ == "__main__":
