@@ -8,7 +8,22 @@ BLOCK_SIZE = 8
 BATCH_SIZE = 4
 
 
-def generate_batch(data):
+def train_model(train_data, model, optimizer, decode, iterations):
+    for i in range(iterations):
+        inputs, targets = sample_batch(train_data)
+        _, loss = model(inputs, targets)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        if i % 1000 == 0:
+            generated = model.generate(
+                torch.zeros(1, 1, dtype=torch.long), num_new_tokens=100
+            )
+            print(f"iteration {i}, loss {loss.item()}: {decode(generated[0].tolist())}")
+
+
+def sample_batch(data):
     assert len(data) >= BLOCK_SIZE
     offsets = torch.randint(len(data) - BLOCK_SIZE + 1, (BATCH_SIZE,))
     input_batch = torch.stack(
@@ -65,11 +80,9 @@ def main():
     encode, decode = generate_encoder_decoder(token_universe)
     data = torch.tensor(encode(content), dtype=torch.long)
     train_data, val_data = split_data(data, TRAINING_DATA_PERCENTAGE)
-    inputs, targets = generate_batch(train_data)
     model = BigramLanguageModel(len(token_universe))
-
-    generated = model.generate(torch.zeros(2, 2, dtype=torch.long), num_new_tokens=100)
-    print(decode(generated[0].tolist()))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    train_model(train_data, model, optimizer, decode, iterations=100000)
 
 
 if __name__ == "__main__":
