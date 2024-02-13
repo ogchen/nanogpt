@@ -3,14 +3,19 @@ import time
 import argparse
 from functools import wraps
 from bigram import BigramLanguageModel
+from transformer import TransformerLanguageModel
 
-MAX_TOKENS = 255  # Allow usage of uint8
 TRAINING_DATA_PERCENTAGE = 0.9
 BLOCK_SIZE = 8
 BATCH_SIZE = 4
-# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+EMBEDDING_DIMENSIONS = 32
+HEAD_SIZE = 16
 DEVICE = "cpu"
+# DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EVALUATION_ITERATIONS = 200
+PRINT_ITERATIONS = 5000
+TOTAL_ITERATIONS = 20000
+LEARNING_RATE = 1e-3
 
 
 def timing_decorator(func):
@@ -37,11 +42,12 @@ def estimate_loss(data, model):
     return losses.mean()
 
 
-def print_training_status(iteration, train_data, val_data, model, decode):
+def print_training_status(iteration, train_data, val_data, model, encode, decode):
     train_loss = estimate_loss(train_data, model)
     val_loss = estimate_loss(val_data, model)
     generated = model.generate(
-        torch.zeros(1, 1, dtype=torch.long, device=DEVICE), num_new_tokens=100
+        torch.tensor(encode(" "), dtype=torch.long, device=DEVICE)[None, :],
+        num_new_tokens=100,
     )
     print(f"iteration: {iteration}, training: {train_loss}, val loss: {val_loss}")
     print("sample output:")
@@ -50,7 +56,7 @@ def print_training_status(iteration, train_data, val_data, model, decode):
 
 
 @timing_decorator
-def train_model(train_data, val_data, model, optimizer, decode, iterations):
+def train_model(train_data, val_data, model, optimizer, encode, decode, iterations):
     for i in range(iterations):
         inputs, targets = sample_batch(train_data)
         _, loss = model(inputs, targets)
@@ -58,8 +64,8 @@ def train_model(train_data, val_data, model, optimizer, decode, iterations):
         loss.backward()
         optimizer.step()
 
-        if i % 5000 == 0:
-            print_training_status(i, train_data, val_data, model, decode)
+        if i % PRINT_ITERATIONS == 0:
+            print_training_status(i, train_data, val_data, model, encode, decode)
 
 
 def sample_batch(data):
@@ -121,10 +127,24 @@ def main():
     encode, decode = generate_encoder_decoder(token_universe)
     data = torch.tensor(encode(content), dtype=torch.long)
     train_data, val_data = split_data(data, TRAINING_DATA_PERCENTAGE)
-    model = BigramLanguageModel(len(token_universe))
+    # model = BigramLanguageModel(len(token_universe))
+    model = TransformerLanguageModel(
+        max_tokens=len(token_universe),
+        max_block_size=BLOCK_SIZE,
+        embedding_dimensions=EMBEDDING_DIMENSIONS,
+        head_size=HEAD_SIZE,
+    )
     model = model.to(DEVICE)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
-    train_model(train_data, val_data, model, optimizer, decode, iterations=20000)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE)
+    train_model(
+        train_data,
+        val_data,
+        model,
+        optimizer,
+        encode,
+        decode,
+        iterations=TOTAL_ITERATIONS,
+    )
 
 
 if __name__ == "__main__":
