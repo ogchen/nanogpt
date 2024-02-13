@@ -8,7 +8,7 @@
             "name": "nanogpt",
             "type": "debugpy",
             "request": "launch",
-            "program": "/home/ogchen/Github/nanogpt/nanogpt.py",
+            "program": "/home/ogchen/Github/nanogpt/train.py",
             "console": "integratedTerminal",
             "args": "/home/ogchen/Github/whatsapp-chat-chandan.txt"
         }
