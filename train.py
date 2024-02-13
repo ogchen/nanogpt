@@ -25,6 +25,7 @@ NUM_BLOCKS = 6
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 EVALUATION_ITERATIONS = 200
 PRINT_ITERATIONS = 5
+SAVE_ITERATIONS = 20
 TOTAL_ITERATIONS = 5000
 LEARNING_RATE = 3e-4
 DROPOUT = 0.2
@@ -74,7 +75,7 @@ def print_sample_output(model, encode, decode):
 
 
 @timing_decorator
-def train_model(train_data, val_data, model, optimizer, encode, decode, iterations):
+def train_model(train_data, val_data, model, optimizer, encode, decode, statefile, iterations):
     global CURRENT_ITERATION
     for i in range(iterations + 1):
         inputs, targets = sample_batch(train_data)
@@ -84,7 +85,8 @@ def train_model(train_data, val_data, model, optimizer, encode, decode, iteratio
         optimizer.step()
         if i % PRINT_ITERATIONS == 0:
             print_loss(train_data, val_data, model)
-            #print_sample_output(model, encode, decode)
+        if i % SAVE_ITERATIONS == 0:
+            save_checkpoint(statefile)
         CURRENT_ITERATION += 1
 
 
@@ -134,7 +136,7 @@ def read_file(filename):
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        prog="nanogpt", description="Executes a GPT language model"
+        prog="train", description="Trains a GPT language model"
     )
     parser.add_argument("-s", "--statefile")
     parser.add_argument("filename")
@@ -199,6 +201,7 @@ def main():
         OPTIMIZER,
         encode,
         decode,
+        args.statefile,
         iterations=TOTAL_ITERATIONS,
     )
 
