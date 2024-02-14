@@ -129,13 +129,14 @@ class TransformerLanguageModel(nn.Module):
             loss = functional.cross_entropy(logits_view, targets_view)
         return logits, loss
 
+    def get_next_token(self, inputs):
+        logits, _ = self(inputs)
+        logits = logits[:, -1, :]
+        prob_batch = functional.softmax(logits, dim=-1)
+        return torch.multinomial(prob_batch, num_samples=1)
+
     def generate(self, inputs, num_new_tokens, decode=None):
         for _ in range(num_new_tokens):
-            logits, _ = self(inputs)
-            logits = logits[:, -1, :]
-            prob_batch = functional.softmax(logits, dim=-1)
-            next_tokens = torch.multinomial(prob_batch, num_samples=1)
-            if decode:
-                print(decode(next_tokens[0].tolist()), end="")
-            inputs = torch.cat((inputs, next_tokens), dim=1)
+            next_token = self.get_next_token(inputs)
+            inputs = torch.cat((inputs, next_token), dim=1)
         return inputs

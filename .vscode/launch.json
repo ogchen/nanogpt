@@ -18,7 +18,15 @@
             "request": "launch",
             "program": "/home/ogchen/Github/nanogpt/generate.py",
             "console": "integratedTerminal",
-            "args": "-s /home/ogchen/Github/model-state -t 10000 /home/ogchen/Github/whatsapp-chat-chandan.txt"
+            "args": "-s /home/ogchen/Github/model-state /home/ogchen/Github/whatsapp-chat-chandan.txt"
+        }, 
+        {
+            "name": "chat",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/home/ogchen/Github/nanogpt/chat.py",
+            "console": "integratedTerminal",
+            "args": "-s /home/ogchen/Github/model-state /home/ogchen/Github/whatsapp-chat-chandan.txt"
         }
     ]
 }
