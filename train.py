@@ -4,7 +4,6 @@ import os
 import signal
 import sys
 import torch
-from bigram import BigramLanguageModel
 from src.tokenizer import Tokenizer
 from src.transformer import TransformerLanguageModel
 from src import utils
