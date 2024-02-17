@@ -1,34 +1,18 @@
-import torch
-import time
+import argparse
+import json
+import os
 import signal
 import sys
-import os
-import argparse
-from functools import wraps
+import time
+import torch
 from bigram import BigramLanguageModel
-from transformer import TransformerLanguageModel
+from functools import wraps
+from src.transformer import TransformerLanguageModel
 
 
 MODEL = None
 CURRENT_ITERATION = 0
 OPTIMIZER = None
-
-
-TRAINING_DATA_PERCENTAGE = 0.9
-BLOCK_SIZE = 256
-BATCH_SIZE = 64
-NUM_HEADS = 6
-EMBEDDING_DIMENSIONS = NUM_HEADS * 64
-NUM_BLOCKS = 6
-# EMBEDDING_DIMENSIONS = NUM_HEADS * 2
-# NUM_BLOCKS = 2
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-EVALUATION_ITERATIONS = 200
-PRINT_ITERATIONS = 5
-SAVE_ITERATIONS = 20
-TOTAL_ITERATIONS = 5000
-LEARNING_RATE = 3e-4
-DROPOUT = 0.2
 
 
 def timing_decorator(func):
@@ -44,63 +28,67 @@ def timing_decorator(func):
 
 
 @torch.no_grad
-def estimate_loss(data, model):
+def estimate_loss(data, model, config):
     model.eval()
-    losses = torch.zeros(EVALUATION_ITERATIONS)
-    for k in range(EVALUATION_ITERATIONS):
-        inputs, targets = sample_batch(data)
+    losses = torch.zeros(config["evaluation_iterations"])
+    for k in range(config["evaluation_iterations"]):
+        inputs, targets = sample_batch(data, config)
         _, loss = model(inputs, targets)
         losses[k] = loss.item()
     model.train()
     return losses.mean()
 
 
-def print_loss(train_data, val_data, model):
+def print_loss(train_data, val_data, model, config):
     global CURRENT_ITERATION
-    train_loss = estimate_loss(train_data, model)
-    val_loss = estimate_loss(val_data, model)
-    print(f"iteration: {CURRENT_ITERATION}, training: {train_loss}, val loss: {val_loss}")
-
-
-def print_sample_output(model, encode, decode):
-    model.eval()
-    generated = model.generate(
-        torch.tensor(encode(" "), dtype=torch.long, device=DEVICE)[None, :],
-        num_new_tokens=100,
+    train_loss = estimate_loss(train_data, model, config)
+    val_loss = estimate_loss(val_data, model, config)
+    print(
+        f"iteration: {CURRENT_ITERATION}, training: {train_loss}, val loss: {val_loss}"
     )
-    model.train()
-    print("sample output:")
-    print(decode(generated[0].tolist()))
-    print()
+
+
+# def print_sample_output(model, encode, decode, device):
+#    model.eval()
+#    generated = model.generate(
+#        torch.tensor(encode(" "), dtype=torch.long, device=device)[None, :],
+#        num_new_tokens=100,
+#    )
+#    model.train()
+#    print("sample output:")
+#    print(decode(generated[0].tolist()))
+#    print()
 
 
 @timing_decorator
-def train_model(train_data, val_data, model, optimizer, encode, decode, statefile, iterations):
+def train_model(
+    train_data, val_data, model, optimizer, encode, decode, statefile, config
+):
     global CURRENT_ITERATION
-    for i in range(iterations + 1):
-        inputs, targets = sample_batch(train_data)
+    for i in range(config["total_iterations"] + 1):
+        inputs, targets = sample_batch(train_data, config)
         _, loss = model(inputs, targets)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if i % PRINT_ITERATIONS == 0:
-            print_loss(train_data, val_data, model)
-        if i % SAVE_ITERATIONS == 0:
+        if i % config["print_iterations"] == 0:
+            print_loss(train_data, val_data, model, config)
+        if i % config["save_iterations"] == 0:
             save_checkpoint(statefile)
         CURRENT_ITERATION += 1
 
 
-def sample_batch(data):
-    assert len(data) >= BLOCK_SIZE + 1
-    offsets = torch.randint(len(data) - BLOCK_SIZE, (BATCH_SIZE,))
+def sample_batch(data, config):
+    assert len(data) >= config["block_size"] + 1
+    offsets = torch.randint(len(data) - config["block_size"], (config["batch_size"],))
     input_batch = torch.stack(
-        [data[offset : offset + BLOCK_SIZE] for offset in offsets]
+        [data[offset : offset + config["block_size"]] for offset in offsets]
     )
     target_batch = torch.stack(
-        [data[offset + 1 : offset + 1 + BLOCK_SIZE] for offset in offsets]
+        [data[offset + 1 : offset + 1 + config["block_size"]] for offset in offsets]
     )
-    input_batch = input_batch.to(DEVICE)
-    target_batch = target_batch.to(DEVICE)
+    input_batch = input_batch.to(config["device"])
+    target_batch = target_batch.to(config["device"])
     return input_batch, target_batch
 
 
@@ -138,6 +126,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         prog="train", description="Trains a GPT language model"
     )
+    parser.add_argument("-c", "--config")
     parser.add_argument("-s", "--statefile")
     parser.add_argument("filename")
     return parser.parse_args()
@@ -148,11 +137,14 @@ def save_checkpoint(filepath):
     global MODEL
     global OPTIMIZER
     if MODEL is not None and OPTIMIZER is not None:
-        torch.save({
-            "iteration": CURRENT_ITERATION,
-            "model_state": MODEL.state_dict(),
-            "optimizer_state": OPTIMIZER.state_dict(),
-        }, filepath)
+        torch.save(
+            {
+                "iteration": CURRENT_ITERATION,
+                "model_state": MODEL.state_dict(),
+                "optimizer_state": OPTIMIZER.state_dict(),
+            },
+            filepath,
+        )
 
 
 def load_checkpoint(filepath):
@@ -167,32 +159,42 @@ def load_checkpoint(filepath):
         print(f"Loaded state file from {filepath}, iteration: {CURRENT_ITERATION}")
 
 
+def load_config(filepath):
+    with open(filepath, mode="r") as f:
+        return json.load(f)
+
+
 def main():
     global CURRENT_ITERATION
     global MODEL
     global OPTIMIZER
 
     args = parse_args()
+
     def signal_handler(*_):
         save_checkpoint(args.statefile)
         sys.exit(0)
+
     signal.signal(signal.SIGINT, signal_handler)
 
+    config = load_config(args.config)
     content = read_file(args.filename)
     token_universe = extract_token_universe(content)
     encode, decode = generate_encoder_decoder(token_universe)
     data = torch.tensor(encode(content), dtype=torch.long)
-    train_data, val_data = split_data(data, TRAINING_DATA_PERCENTAGE)
+    train_data, val_data = split_data(data, config["training_data_percentage"])
     MODEL = TransformerLanguageModel(
         max_tokens=len(token_universe),
-        max_block_size=BLOCK_SIZE,
-        embedding_dimensions=EMBEDDING_DIMENSIONS,
-        num_heads=NUM_HEADS,
-        num_transformer_blocks=NUM_BLOCKS,
-        dropout=DROPOUT,
+        max_block_size=config["block_size"],
+        embedding_dimensions=config["embedding_dimensions"],
+        num_heads=config["num_heads"],
+        num_transformer_blocks=config["num_blocks"],
+        dropout=config["dropout"],
     )
-    MODEL = MODEL.to(DEVICE)
-    OPTIMIZER = torch.optim.AdamW(MODEL.parameters(), lr=LEARNING_RATE)
+    if config["device"] == "cuda":
+        assert torch.cuda.is_available()
+    MODEL = MODEL.to(config["device"])
+    OPTIMIZER = torch.optim.AdamW(MODEL.parameters(), lr=config["learning_rate"])
     load_checkpoint(args.statefile)
     train_model(
         train_data,
@@ -202,7 +204,7 @@ def main():
         encode,
         decode,
         args.statefile,
-        iterations=TOTAL_ITERATIONS,
+        config=config,
     )
 
 

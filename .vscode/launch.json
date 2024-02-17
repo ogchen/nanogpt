@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "/home/ogchen/Github/nanogpt/train.py",
             "console": "integratedTerminal",
-            "args": "-s /home/ogchen/Github/model-state /home/ogchen/Github/whatsapp-chat-chandan.txt"
+            "args": "-c cfg/config.dev.json -s /home/ogchen/Github/model-state /home/ogchen/Github/whatsapp-chat-chandan.txt"
         }, 
         {
             "name": "generate",

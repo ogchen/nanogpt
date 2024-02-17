@@ -2,7 +2,7 @@ import argparse
 import train
 import torch
 import os
-from transformer import TransformerLanguageModel
+from src.transformer import TransformerLanguageModel
 
 
 USERS = ["Oscar", "Chandan"]
