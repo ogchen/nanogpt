@@ -3,27 +3,13 @@ import json
 import os
 import signal
 import sys
-import time
 import torch
 from bigram import BigramLanguageModel
-from functools import wraps
+from src.tokenizer import Tokenizer
 from src.transformer import TransformerLanguageModel
+from src import utils
 
-MODEL = None
 EPOCH = 0
-OPTIMIZER = None
-
-
-def timing_decorator(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        start_time = time.time()
-        result = func(*args, **kwargs)
-        end_time = time.time()
-        print(f"Execution of {func.__name__} took {end_time - start_time} seconds")
-        return result
-
-    return wrapper
 
 
 @torch.no_grad
@@ -45,9 +31,9 @@ def print_loss(train_data, val_data, model, config):
     print(f"iteration: {EPOCH}, training: {train_loss}, val loss: {val_loss}")
 
 
-def print_sample_output(model, encode, decode, config):
+def print_sample_output(model, tokenizer, config):
     model.eval()
-    input = torch.tensor(encode(" "), dtype=torch.long, device=config["device"])[
+    input = torch.tensor(tokenizer.encode(" "), dtype=torch.long, device=config["device"])[
         None, :
     ]
     generated = model.generate(
@@ -57,16 +43,15 @@ def print_sample_output(model, encode, decode, config):
 
     model.train()
     print("sample output:")
-    print(decode(generated[0].tolist()))
+    print(tokenizer.decode(generated[0].tolist()))
     print()
 
 
-@timing_decorator
-def train_model(
-    train_data, val_data, model, optimizer, encode, decode, statefile, config
-):
+@utils.timing_decorator
+def train_model(data, model, optimizer, tokenizer, statefile, config):
     global EPOCH
 
+    train_data, val_data = split_data(data, config["training_data_percentage"])
     model.train()
     for i in range(EPOCH, config["total_iterations"] + 1):
         inputs, targets = sample_batch(train_data, config)
@@ -76,9 +61,9 @@ def train_model(
         optimizer.step()
         if i % config["print_iterations"] == 0:
             print_loss(train_data, val_data, model, config)
-            print_sample_output(model, encode, decode, config)
+            print_sample_output(model, tokenizer, config)
         if i % config["save_iterations"] == 0:
-            save_checkpoint(statefile)
+            save_checkpoint(statefile, model, optimizer)
         EPOCH += 1
 
 
@@ -103,23 +88,6 @@ def split_data(data, training_data_percentage):
     return train_data, val_data
 
 
-def generate_encoder_decoder(token_list):
-    token_to_encoding = {c: i for i, c in enumerate(token_list)}
-    encoding_to_token = {i: c for i, c in enumerate(token_list)}
-
-    encode = lambda tokens: [token_to_encoding[t] for t in tokens if t in token_list]
-    decode = lambda encodings: "".join(
-        (encoding_to_token.get(e, "") for e in encodings)
-    )
-
-    return encode, decode
-
-
-def extract_token_universe(text, max_tokens=None):
-    token_universe = sorted(list(set(text)))
-    return token_universe[:max_tokens] if max_tokens else token_universe
-
-
 def read_file(filename):
     with open(filename, mode="r") as f:
         text = f.read()
@@ -136,29 +104,24 @@ def parse_args():
     return parser.parse_args()
 
 
-def save_checkpoint(filepath):
+def save_checkpoint(filepath, model, optimizer):
     global EPOCH
-    global MODEL
-    global OPTIMIZER
-    if MODEL is not None and OPTIMIZER is not None:
-        torch.save(
-            {
-                "iteration": EPOCH,
-                "model_state": MODEL.state_dict(),
-                "optimizer_state": OPTIMIZER.state_dict(),
-            },
-            filepath,
-        )
+    torch.save(
+        {
+            "iteration": EPOCH,
+            "model_state": model.state_dict(),
+            "optimizer_state": optimizer.state_dict(),
+        },
+        filepath,
+    )
 
 
-def load_checkpoint(filepath):
+def load_checkpoint(filepath, model, optimizer):
     global EPOCH
-    global MODEL
-    global OPTIMIZER
     if os.path.isfile(filepath):
         checkpoint = torch.load(filepath)
-        MODEL.load_state_dict(checkpoint["model_state"])
-        OPTIMIZER.load_state_dict(checkpoint["optimizer_state"])
+        model.load_state_dict(checkpoint["model_state"])
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
         EPOCH = checkpoint["iteration"]
         print(f"Loaded state file from {filepath}, iteration: {EPOCH}")
 
@@ -171,43 +134,43 @@ def load_config(filepath):
     return config
 
 
-def main():
-    global EPOCH
-    global MODEL
-    global OPTIMIZER
-
-    args = parse_args()
-
+def register_sigint_handler(save_func):
     def signal_handler(*_):
-        save_checkpoint(args.statefile)
+        save_func()
+        save_checkpoint(args.statefile, model, optimizer)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
+
+def main():
+    global EPOCH
+
+    args = parse_args()
     config = load_config(args.config)
+
     content = read_file(args.filename)
-    token_universe = extract_token_universe(content)
-    encode, decode = generate_encoder_decoder(token_universe)
-    data = torch.tensor(encode(content), dtype=torch.long)
-    train_data, val_data = split_data(data, config["training_data_percentage"])
-    MODEL = TransformerLanguageModel(
-        max_tokens=len(token_universe),
+    tokenizer = Tokenizer(content)
+    data = torch.tensor(tokenizer.encode(content), dtype=torch.long)
+
+    model = TransformerLanguageModel(
+        max_tokens=tokenizer.count(),
         max_block_size=config["block_size"],
         embedding_dimensions=config["embedding_dimensions"],
         num_heads=config["num_heads"],
         num_transformer_blocks=config["num_blocks"],
         dropout=config["dropout"],
     )
-    MODEL = MODEL.to(config["device"])
-    OPTIMIZER = torch.optim.AdamW(MODEL.parameters(), lr=config["learning_rate"])
-    load_checkpoint(args.statefile)
+    model = model.to(config["device"])
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
+    load_checkpoint(args.statefile, model, optimizer)
+
+    register_sigint_handler(lambda: save_checkpoint(args.statefile, model, optimizer))
     train_model(
-        train_data,
-        val_data,
-        MODEL,
-        OPTIMIZER,
-        encode,
-        decode,
+        data,
+        model,
+        optimizer,
+        tokenizer,
         args.statefile,
         config=config,
     )
