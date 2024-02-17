@@ -6,18 +6,18 @@ from src.feedforward import FeedForward
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, max_block_size, embedding_dimensions, num_heads, dropout):
+    def __init__(self, max_block_size, dim_embedding, num_heads, dropout):
         super().__init__()
         self.multi_attention = MultiHeadAttention(
             num_heads=num_heads,
-            embedding_size=embedding_dimensions,
-            head_size=embedding_dimensions // num_heads,
+            embedding_size=dim_embedding,
+            head_size=dim_embedding // num_heads,
             max_block_size=max_block_size,
             dropout=dropout,
         )
-        self.feed_forward = FeedForward(embedding_dimensions, dropout)
-        self.layer_norm1 = nn.LayerNorm(embedding_dimensions)
-        self.layer_norm2 = nn.LayerNorm(embedding_dimensions)
+        self.feed_forward = FeedForward(dim_embedding, dropout)
+        self.layer_norm1 = nn.LayerNorm(dim_embedding)
+        self.layer_norm2 = nn.LayerNorm(dim_embedding)
 
     def forward(self, x):
         x = x + self.multi_attention(self.layer_norm1(x))
@@ -30,7 +30,7 @@ class TransformerLanguageModel(nn.Module):
         self,
         max_tokens,
         max_block_size,
-        embedding_dimensions,
+        dim_embedding,
         num_heads,
         num_transformer_blocks,
         dropout,
@@ -38,21 +38,21 @@ class TransformerLanguageModel(nn.Module):
         super().__init__()
         self.max_block_size = max_block_size
         self.register_buffer("positions", torch.arange(max_block_size))
-        self.token_embeddings = nn.Embedding(max_tokens, embedding_dimensions)
-        self.position_embeddings = nn.Embedding(max_block_size, embedding_dimensions)
+        self.token_embeddings = nn.Embedding(max_tokens, dim_embedding)
+        self.position_embeddings = nn.Embedding(max_block_size, dim_embedding)
         self.transformer_blocks = nn.Sequential(
             *[
                 TransformerBlock(
                     max_block_size=max_block_size,
-                    embedding_dimensions=embedding_dimensions,
+                    dim_embedding=dim_embedding,
                     num_heads=num_heads,
                     dropout=dropout,
                 )
                 for _ in range(num_transformer_blocks)
             ],
-            nn.LayerNorm(embedding_dimensions)
+            nn.LayerNorm(dim_embedding)
         )
-        self.language_model_head = nn.Linear(embedding_dimensions, max_tokens)
+        self.language_model_head = nn.Linear(dim_embedding, max_tokens)
 
     def forward(self, inputs, targets=None):
         inputs = inputs[:, -self.max_block_size :]

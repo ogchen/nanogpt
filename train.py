@@ -90,8 +90,7 @@ def split_data(data, training_data_percentage):
 
 def read_file(filename):
     with open(filename, mode="r") as f:
-        text = f.read()
-    return text
+        return f.read()
 
 
 def parse_args():
@@ -151,12 +150,11 @@ def main():
 
     content = read_file(args.filename)
     tokenizer = Tokenizer(content)
-    data = torch.tensor(tokenizer.encode(content), dtype=torch.long)
 
     model = TransformerLanguageModel(
         max_tokens=tokenizer.count(),
         max_block_size=config["block_size"],
-        embedding_dimensions=config["embedding_dimensions"],
+        dim_embedding=config["dim_embedding"],
         num_heads=config["num_heads"],
         num_transformer_blocks=config["num_blocks"],
         dropout=config["dropout"],
@@ -166,6 +164,8 @@ def main():
     load_checkpoint(args.statefile, model, optimizer)
 
     register_sigint_handler(lambda: save_checkpoint(args.statefile, model, optimizer))
+
+    data = torch.tensor(tokenizer.encode(content), dtype=torch.long)
     train_model(
         data,
         model,

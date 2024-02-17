@@ -3,7 +3,7 @@
     "block_size": 8,
     "batch_size": 4,
     "num_heads": 6,
-    "embedding_dimensions": 12,
+    "dim_embedding": 12,
     "num_blocks": 2,
     "device": "cpu",
     "evaluation_iterations": 200,
