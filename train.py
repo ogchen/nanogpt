@@ -4,6 +4,7 @@ import os
 import signal
 import sys
 import torch
+from src.checkpoint import CheckpointManager
 from src.tokenizer import Tokenizer
 from src.transformer import TransformerLanguageModel
 from src import utils
@@ -46,13 +47,11 @@ def print_sample_output(model, tokenizer, config):
 
 
 @utils.timing_decorator
-def train_model(data, model, optimizer, tokenizer, statefile, config):
-    global EPOCH
-
+def train_model(data, model, optimizer, tokenizer, checkpoint_manager, writer, config):
     train_data, val_data = split_data(data, config["training_data_percentage"])
     model.train()
-    for i in range(EPOCH, config["total_iterations"] + 1):
-        EPOCH = i
+    for i in range(checkpoint_manager.epoch, config["total_iterations"] + 1):
+        checkpoint_manager.epoch = i
         inputs, targets = sample_batch(train_data, config)
         _, loss = model(inputs, targets)
         optimizer.zero_grad()
@@ -62,7 +61,7 @@ def train_model(data, model, optimizer, tokenizer, statefile, config):
             print_loss(i, train_data, val_data, model, config)
             print_sample_output(model, tokenizer, config)
         if i % config["save_iterations"] == 0:
-            save_checkpoint(statefile, model, optimizer)
+            checkpoint_manager.save()
 
 
 def sample_batch(data, config):
@@ -101,28 +100,6 @@ def parse_args():
     return parser.parse_args()
 
 
-def save_checkpoint(filepath, model, optimizer):
-    global EPOCH
-    torch.save(
-        {
-            "iteration": EPOCH,
-            "model_state": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
-        },
-        filepath,
-    )
-
-
-def load_checkpoint(filepath, model, optimizer):
-    global EPOCH
-    if os.path.isfile(filepath):
-        checkpoint = torch.load(filepath)
-        model.load_state_dict(checkpoint["model_state"])
-        optimizer.load_state_dict(checkpoint["optimizer_state"])
-        EPOCH = checkpoint["iteration"]
-        print(f"Loaded state file from {filepath}, iteration: {EPOCH}")
-
-
 def load_config(filepath):
     with open(filepath, mode="r") as f:
         config = json.load(f)
@@ -131,18 +108,16 @@ def load_config(filepath):
     return config
 
 
-def register_sigint_handler(save_func):
+def register_sigint_handler(checkpoint_manager):
     def signal_handler(*_):
         print(f"SIGINT received, saving model and exiting")
-        save_func()
+        checkpoint_manager.save()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
 
 def main():
-    global EPOCH
-
     args = parse_args()
     config = load_config(args.config)
 
@@ -159,9 +134,9 @@ def main():
     )
     model = model.to(config["device"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
-    load_checkpoint(args.statefile, model, optimizer)
-
-    register_sigint_handler(lambda: save_checkpoint(args.statefile, model, optimizer))
+    checkpoint_manager = CheckpointManager(model, optimizer, args.statefile)
+    checkpoint_manager.load()
+    register_sigint_handler(checkpoint_manager)
 
     data = torch.tensor(tokenizer.encode(content), dtype=torch.long)
     train_model(
@@ -169,7 +144,7 @@ def main():
         model,
         optimizer,
         tokenizer,
-        args.statefile,
+        checkpoint_manager,
         config=config,
     )
 
