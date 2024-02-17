@@ -23,18 +23,17 @@ def estimate_loss(data, model, config):
     return losses.mean()
 
 
-def print_loss(train_data, val_data, model, config):
-    global EPOCH
+def print_loss(epoch, train_data, val_data, model, config):
     train_loss = estimate_loss(train_data, model, config)
     val_loss = estimate_loss(val_data, model, config)
-    print(f"iteration: {EPOCH}, training: {train_loss}, val loss: {val_loss}")
+    print(f"iteration: {epoch}, training: {train_loss}, val loss: {val_loss}")
 
 
 def print_sample_output(model, tokenizer, config):
     model.eval()
-    input = torch.tensor(tokenizer.encode(" "), dtype=torch.long, device=config["device"])[
-        None, :
-    ]
+    input = torch.tensor(
+        tokenizer.encode(" "), dtype=torch.long, device=config["device"]
+    )[None, :]
     generated = model.generate(
         input,
         num_new_tokens=100,
@@ -53,17 +52,17 @@ def train_model(data, model, optimizer, tokenizer, statefile, config):
     train_data, val_data = split_data(data, config["training_data_percentage"])
     model.train()
     for i in range(EPOCH, config["total_iterations"] + 1):
+        EPOCH = i
         inputs, targets = sample_batch(train_data, config)
         _, loss = model(inputs, targets)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         if i % config["print_iterations"] == 0:
-            print_loss(train_data, val_data, model, config)
+            print_loss(i, train_data, val_data, model, config)
             print_sample_output(model, tokenizer, config)
         if i % config["save_iterations"] == 0:
             save_checkpoint(statefile, model, optimizer)
-        EPOCH += 1
 
 
 def sample_batch(data, config):
@@ -134,8 +133,8 @@ def load_config(filepath):
 
 def register_sigint_handler(save_func):
     def signal_handler(*_):
+        print(f"SIGINT received, saving model and exiting")
         save_func()
-        save_checkpoint(args.statefile, model, optimizer)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
