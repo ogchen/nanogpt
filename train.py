@@ -9,9 +9,8 @@ from bigram import BigramLanguageModel
 from functools import wraps
 from src.transformer import TransformerLanguageModel
 
-
 MODEL = None
-CURRENT_ITERATION = 0
+EPOCH = 0
 OPTIMIZER = None
 
 
@@ -40,32 +39,36 @@ def estimate_loss(data, model, config):
 
 
 def print_loss(train_data, val_data, model, config):
-    global CURRENT_ITERATION
+    global EPOCH
     train_loss = estimate_loss(train_data, model, config)
     val_loss = estimate_loss(val_data, model, config)
-    print(
-        f"iteration: {CURRENT_ITERATION}, training: {train_loss}, val loss: {val_loss}"
+    print(f"iteration: {EPOCH}, training: {train_loss}, val loss: {val_loss}")
+
+
+def print_sample_output(model, encode, decode, config):
+    model.eval()
+    input = torch.tensor(encode(" "), dtype=torch.long, device=config["device"])[
+        None, :
+    ]
+    generated = model.generate(
+        input,
+        num_new_tokens=100,
     )
 
-
-# def print_sample_output(model, encode, decode, device):
-#    model.eval()
-#    generated = model.generate(
-#        torch.tensor(encode(" "), dtype=torch.long, device=device)[None, :],
-#        num_new_tokens=100,
-#    )
-#    model.train()
-#    print("sample output:")
-#    print(decode(generated[0].tolist()))
-#    print()
+    model.train()
+    print("sample output:")
+    print(decode(generated[0].tolist()))
+    print()
 
 
 @timing_decorator
 def train_model(
     train_data, val_data, model, optimizer, encode, decode, statefile, config
 ):
-    global CURRENT_ITERATION
-    for i in range(config["total_iterations"] + 1):
+    global EPOCH
+
+    model.train()
+    for i in range(EPOCH, config["total_iterations"] + 1):
         inputs, targets = sample_batch(train_data, config)
         _, loss = model(inputs, targets)
         optimizer.zero_grad()
@@ -73,9 +76,10 @@ def train_model(
         optimizer.step()
         if i % config["print_iterations"] == 0:
             print_loss(train_data, val_data, model, config)
+            print_sample_output(model, encode, decode, config)
         if i % config["save_iterations"] == 0:
             save_checkpoint(statefile)
-        CURRENT_ITERATION += 1
+        EPOCH += 1
 
 
 def sample_batch(data, config):
@@ -133,13 +137,13 @@ def parse_args():
 
 
 def save_checkpoint(filepath):
-    global CURRENT_ITERATION
+    global EPOCH
     global MODEL
     global OPTIMIZER
     if MODEL is not None and OPTIMIZER is not None:
         torch.save(
             {
-                "iteration": CURRENT_ITERATION,
+                "iteration": EPOCH,
                 "model_state": MODEL.state_dict(),
                 "optimizer_state": OPTIMIZER.state_dict(),
             },
@@ -148,24 +152,27 @@ def save_checkpoint(filepath):
 
 
 def load_checkpoint(filepath):
-    global CURRENT_ITERATION
+    global EPOCH
     global MODEL
     global OPTIMIZER
     if os.path.isfile(filepath):
         checkpoint = torch.load(filepath)
         MODEL.load_state_dict(checkpoint["model_state"])
         OPTIMIZER.load_state_dict(checkpoint["optimizer_state"])
-        CURRENT_ITERATION = checkpoint["iteration"]
-        print(f"Loaded state file from {filepath}, iteration: {CURRENT_ITERATION}")
+        EPOCH = checkpoint["iteration"]
+        print(f"Loaded state file from {filepath}, iteration: {EPOCH}")
 
 
 def load_config(filepath):
     with open(filepath, mode="r") as f:
-        return json.load(f)
+        config = json.load(f)
+    if config["device"] == "cuda":
+        assert torch.cuda.is_available()
+    return config
 
 
 def main():
-    global CURRENT_ITERATION
+    global EPOCH
     global MODEL
     global OPTIMIZER
 
@@ -191,8 +198,6 @@ def main():
         num_transformer_blocks=config["num_blocks"],
         dropout=config["dropout"],
     )
-    if config["device"] == "cuda":
-        assert torch.cuda.is_available()
     MODEL = MODEL.to(config["device"])
     OPTIMIZER = torch.optim.AdamW(MODEL.parameters(), lr=config["learning_rate"])
     load_checkpoint(args.statefile)
