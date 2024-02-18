@@ -7,9 +7,10 @@
     "num_blocks": 2,
     "device": "cpu",
     "evaluation_iterations": 200,
-    "print_iterations": 100,
-    "save_iterations": 500,
-    "total_iterations": 5000,
+    "log_loss_frequency": 100,
+    "log_sample_frequency": 500,
+    "save_frequency": 500,
+    "max_epoch": 5000,
     "learning_rate": 3e-4,
     "dropout": 0.2
 }

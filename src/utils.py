@@ -1,3 +1,4 @@
+import datetime
 import time
 from functools import wraps
 
@@ -12,3 +13,8 @@ def timing_decorator(func):
         return result
 
     return wrapper
+
+
+def generate_runid():
+    datetime_str = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return f"run-{datetime_str}"

@@ -8,8 +8,7 @@ from src.checkpoint import CheckpointManager
 from src.tokenizer import Tokenizer
 from src.transformer import TransformerLanguageModel
 from src import utils
-
-EPOCH = 0
+from torch.utils.tensorboard import SummaryWriter
 
 
 @torch.no_grad
@@ -24,13 +23,16 @@ def estimate_loss(data, model, config):
     return losses.mean()
 
 
-def print_loss(epoch, train_data, val_data, model, config):
+def log_losses(epoch, train_data, val_data, model, writer, config):
     train_loss = estimate_loss(train_data, model, config)
     val_loss = estimate_loss(val_data, model, config)
+    writer.add_scalars("loss", {"train": train_loss, "val": val_loss}, epoch)
+    writer.flush()
     print(f"iteration: {epoch}, training: {train_loss}, val loss: {val_loss}")
 
 
-def print_sample_output(model, tokenizer, config):
+@torch.no_grad
+def sample_output(model, tokenizer, config):
     model.eval()
     input = torch.tensor(
         tokenizer.encode(" "), dtype=torch.long, device=config["device"]
@@ -39,28 +41,34 @@ def print_sample_output(model, tokenizer, config):
         input,
         num_new_tokens=100,
     )
-
+    output = tokenizer.decode(generated[0].tolist())
     model.train()
-    print("sample output:")
-    print(tokenizer.decode(generated[0].tolist()))
-    print()
+    return output
+
+
+def log_sample_output(epoch, model, tokenizer, writer, config):
+    output = sample_output(model, tokenizer, config)
+    writer.add_text("output", output, epoch)
+    writer.flush()
+    print(f"sample output:{output}\n")
 
 
 @utils.timing_decorator
 def train_model(data, model, optimizer, tokenizer, checkpoint_manager, writer, config):
     train_data, val_data = split_data(data, config["training_data_percentage"])
     model.train()
-    for i in range(checkpoint_manager.epoch, config["total_iterations"] + 1):
+    for i in range(checkpoint_manager.epoch, config["max_epoch"] + 1):
         checkpoint_manager.epoch = i
         inputs, targets = sample_batch(train_data, config)
         _, loss = model(inputs, targets)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        if i % config["print_iterations"] == 0:
-            print_loss(i, train_data, val_data, model, config)
-            print_sample_output(model, tokenizer, config)
-        if i % config["save_iterations"] == 0:
+        if i % config["log_loss_frequency"] == 0:
+            log_losses(i, train_data, val_data, model, writer, config)
+        if i % config["log_sample_frequency"] == 0:
+            log_sample_output(i, model, tokenizer, writer, config)
+        if i % config["save_frequency"] == 0:
             checkpoint_manager.save()
 
 
@@ -135,8 +143,10 @@ def main():
     model = model.to(config["device"])
     optimizer = torch.optim.AdamW(model.parameters(), lr=config["learning_rate"])
     checkpoint_manager = CheckpointManager(model, optimizer, args.statefile)
-    checkpoint_manager.load()
+    if not checkpoint_manager.load():
+        checkpoint_manager.runid = utils.generate_runid()
     register_sigint_handler(checkpoint_manager)
+    writer = SummaryWriter(f"runs/{checkpoint_manager.runid}")
 
     data = torch.tensor(tokenizer.encode(content), dtype=torch.long)
     train_model(
@@ -145,6 +155,7 @@ def main():
         optimizer,
         tokenizer,
         checkpoint_manager,
+        writer,
         config=config,
     )
 
